@@ -19,9 +19,15 @@ export async function ensureSchema() {
       id INTEGER PRIMARY KEY DEFAULT 1,
       puppy_name TEXT NOT NULL DEFAULT '',
       birth_date DATE,
+      avatar_data_url TEXT,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       CONSTRAINT only_one_profile CHECK (id = 1)
     );
+  `;
+
+  await sql`
+    ALTER TABLE puppy_profile
+    ADD COLUMN IF NOT EXISTS avatar_data_url TEXT;
   `;
 
   await sql`
@@ -35,8 +41,8 @@ export async function ensureSchema() {
   `;
 
   await sql`
-    INSERT INTO puppy_profile (id, puppy_name, birth_date)
-    VALUES (1, '', NULL)
+    INSERT INTO puppy_profile (id, puppy_name, birth_date, avatar_data_url)
+    VALUES (1, '', NULL, NULL)
     ON CONFLICT (id) DO NOTHING;
   `;
 
