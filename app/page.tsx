@@ -5,10 +5,29 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 type Profile = { puppy_name: string; birth_date: string | null };
 type WeightEntry = { id: number; measured_at: string; weight_kg: number; notes: string };
 
+type ChartScale = {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+  plotW: number;
+  plotH: number;
+  yMin: number;
+  yMax: number;
+  ticks: number[];
+};
+
 function formatDate(value: string) {
   if (!value) return '';
   const [year, month, day] = value.split('-');
   return `${day}/${month}/${year}`;
+}
+
+function formatKg(value: number) {
+  return value.toLocaleString('pt-BR', {
+    minimumFractionDigits: value % 1 === 0 ? 0 : 1,
+    maximumFractionDigits: 2,
+  });
 }
 
 function calculateAge(measuredAt: string, birthDate?: string | null) {
@@ -22,21 +41,50 @@ function calculateAge(measuredAt: string, birthDate?: string | null) {
   return `${weeks} sem${weeks === 1 ? '' : 's'}${rest ? ` + ${rest}d` : ''}`;
 }
 
-function makePath(entries: WeightEntry[], width: number, height: number) {
-  if (!entries.length) return '';
+function niceStep(rawStep: number) {
+  if (rawStep <= 0) return 1;
+  const exponent = Math.floor(Math.log10(rawStep));
+  const magnitude = 10 ** exponent;
+  const fraction = rawStep / magnitude;
+
+  if (fraction <= 1) return 1 * magnitude;
+  if (fraction <= 2) return 2 * magnitude;
+  if (fraction <= 2.5) return 2.5 * magnitude;
+  if (fraction <= 5) return 5 * magnitude;
+  return 10 * magnitude;
+}
+
+function getChartScale(entries: WeightEntry[], width: number, height: number): ChartScale {
   const weights = entries.map((entry) => Number(entry.weight_kg));
-  const minWeight = Math.min(...weights);
-  const maxWeight = Math.max(...weights);
-  const paddingX = 34;
-  const paddingY = 24;
-  const plotW = width - paddingX * 2;
-  const plotH = height - paddingY * 2;
-  const span = Math.max(0.5, maxWeight - minWeight);
+  const maxWeight = weights.length ? Math.max(...weights) : 1;
+  const tickCount = 4;
+  const step = niceStep((maxWeight * 1.05) / tickCount);
+  const yMax = Math.max(step * tickCount, step);
+  const yMin = 0;
+  const left = 62;
+  const right = 34;
+  const top = 24;
+  const bottom = 34;
+  const plotW = width - left - right;
+  const plotH = height - top - bottom;
+  const ticks = Array.from({ length: tickCount + 1 }, (_, index) => yMax - index * step);
+
+  return { left, right, top, bottom, plotW, plotH, yMin, yMax, ticks };
+}
+
+function pointFor(entry: WeightEntry, index: number, total: number, scale: ChartScale, width: number) {
+  const x = total === 1 ? scale.left + scale.plotW / 2 : scale.left + (index / (total - 1)) * scale.plotW;
+  const ratio = (Number(entry.weight_kg) - scale.yMin) / (scale.yMax - scale.yMin);
+  const y = scale.top + (1 - ratio) * scale.plotH;
+  return { x, y };
+}
+
+function makePath(entries: WeightEntry[], scale: ChartScale, width: number) {
+  if (!entries.length) return '';
 
   return entries
     .map((entry, index) => {
-      const x = entries.length === 1 ? width / 2 : paddingX + (index / (entries.length - 1)) * plotW;
-      const y = paddingY + (1 - (Number(entry.weight_kg) - minWeight) / span) * plotH;
+      const { x, y } = pointFor(entry, index, entries.length, scale, width);
       return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
     })
     .join(' ');
@@ -45,11 +93,10 @@ function makePath(entries: WeightEntry[], width: number, height: number) {
 function GrowthChart({ entries }: { entries: WeightEntry[] }) {
   const width = 720;
   const height = 320;
-  const path = makePath(entries, width, height);
-  const weights = entries.map((entry) => Number(entry.weight_kg));
-  const minWeight = weights.length ? Math.min(...weights) : 0;
-  const maxWeight = weights.length ? Math.max(...weights) : 10;
-  const range = Math.max(0.5, maxWeight - minWeight);
+  const scale = getChartScale(entries, width, height);
+  const path = makePath(entries, scale, width);
+  const axisBottom = height - scale.bottom;
+  const axisRight = width - scale.right;
 
   return (
     <section className="card chart-card">
@@ -59,28 +106,28 @@ function GrowthChart({ entries }: { entries: WeightEntry[] }) {
           <div className="empty-chart">Cadastre a primeira pesagem para visualizar o gráfico.</div>
         ) : (
           <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Gráfico de crescimento do filhote">
-            <line x1="34" y1="24" x2="34" y2="288" className="axis" />
-            <line x1="34" y1="288" x2="686" y2="288" className="axis" />
-            {[0, 0.25, 0.5, 0.75, 1].map((step) => {
-              const y = 24 + step * 264;
-              const label = (maxWeight - step * range).toFixed(1).replace('.', ',');
+            <text x="18" y="166" className="axis-label" transform="rotate(-90 18 166)">Peso (kg)</text>
+            <line x1={scale.left} y1={scale.top} x2={scale.left} y2={axisBottom} className="axis" />
+            <line x1={scale.left} y1={axisBottom} x2={axisRight} y2={axisBottom} className="axis" />
+            {scale.ticks.map((tick) => {
+              const ratio = (tick - scale.yMin) / (scale.yMax - scale.yMin);
+              const y = scale.top + (1 - ratio) * scale.plotH;
               return (
-                <g key={step}>
-                  <line x1="34" y1={y} x2="686" y2={y} className="grid" />
-                  <text x="5" y={y + 4} className="tick">{label}</text>
+                <g key={tick}>
+                  <line x1={scale.left} y1={y} x2={axisRight} y2={y} className="grid" />
+                  <text x={scale.left - 12} y={y + 4} textAnchor="end" className="tick">{formatKg(tick)}</text>
                 </g>
               );
             })}
             <path d={path} className="growth-line" />
             {entries.map((entry, index) => {
-              const x = entries.length === 1 ? width / 2 : 34 + (index / (entries.length - 1)) * 652;
-              const y = 24 + (1 - (Number(entry.weight_kg) - minWeight) / range) * 264;
+              const { x, y } = pointFor(entry, index, entries.length, scale, width);
               return <circle key={entry.id} cx={x} cy={y} r="5" className="point" />;
             })}
             {entries.map((entry, index) => {
               if (index !== 0 && index !== entries.length - 1 && entries.length > 6) return null;
-              const x = entries.length === 1 ? width / 2 : 34 + (index / (entries.length - 1)) * 652;
-              return <text key={`${entry.id}-date`} x={x - 24} y="310" className="date-label">{formatDate(entry.measured_at).slice(0, 5)}</text>;
+              const { x } = pointFor(entry, index, entries.length, scale, width);
+              return <text key={`${entry.id}-date`} x={x} y="310" textAnchor="middle" className="date-label">{formatDate(entry.measured_at).slice(0, 5)}</text>;
             })}
           </svg>
         )}
