@@ -2,8 +2,9 @@
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 
-type Profile = { puppy_name: string; birth_date: string | null };
+type Profile = { puppy_name: string; birth_date: string | null; avatar_data_url: string | null };
 type WeightEntry = { id: number; measured_at: string; weight_kg: number; notes: string };
+type ChartTooltip = { x: number; y: number; entry: WeightEntry } | null;
 
 type ChartScale = {
   left: number;
@@ -26,7 +27,7 @@ function formatDate(value: string) {
 function formatKg(value: number) {
   return value.toLocaleString('pt-BR', {
     minimumFractionDigits: value % 1 === 0 ? 0 : 1,
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 3,
   });
 }
 
@@ -72,19 +73,19 @@ function getChartScale(entries: WeightEntry[], width: number, height: number): C
   return { left, right, top, bottom, plotW, plotH, yMin, yMax, ticks };
 }
 
-function pointFor(entry: WeightEntry, index: number, total: number, scale: ChartScale, width: number) {
+function pointFor(entry: WeightEntry, index: number, total: number, scale: ChartScale) {
   const x = total === 1 ? scale.left + scale.plotW / 2 : scale.left + (index / (total - 1)) * scale.plotW;
   const ratio = (Number(entry.weight_kg) - scale.yMin) / (scale.yMax - scale.yMin);
   const y = scale.top + (1 - ratio) * scale.plotH;
   return { x, y };
 }
 
-function makePath(entries: WeightEntry[], scale: ChartScale, width: number) {
+function makePath(entries: WeightEntry[], scale: ChartScale) {
   if (!entries.length) return '';
 
   return entries
     .map((entry, index) => {
-      const { x, y } = pointFor(entry, index, entries.length, scale, width);
+      const { x, y } = pointFor(entry, index, entries.length, scale);
       return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
     })
     .join(' ');
@@ -94,9 +95,10 @@ function GrowthChart({ entries }: { entries: WeightEntry[] }) {
   const width = 720;
   const height = 320;
   const scale = getChartScale(entries, width, height);
-  const path = makePath(entries, scale, width);
+  const path = makePath(entries, scale);
   const axisBottom = height - scale.bottom;
   const axisRight = width - scale.right;
+  const [tooltip, setTooltip] = useState<ChartTooltip>(null);
 
   return (
     <section className="card chart-card">
@@ -105,7 +107,7 @@ function GrowthChart({ entries }: { entries: WeightEntry[] }) {
         {entries.length === 0 ? (
           <div className="empty-chart">Cadastre a primeira pesagem para visualizar o gráfico.</div>
         ) : (
-          <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Gráfico de crescimento do filhote">
+          <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Gráfico de crescimento do filhote" onMouseLeave={() => setTooltip(null)}>
             <text x="18" y="166" className="axis-label" transform="rotate(-90 18 166)">Peso (kg)</text>
             <line x1={scale.left} y1={scale.top} x2={scale.left} y2={axisBottom} className="axis" />
             <line x1={scale.left} y1={axisBottom} x2={axisRight} y2={axisBottom} className="axis" />
@@ -121,12 +123,29 @@ function GrowthChart({ entries }: { entries: WeightEntry[] }) {
             })}
             <path d={path} className="growth-line" />
             {entries.map((entry, index) => {
-              const { x, y } = pointFor(entry, index, entries.length, scale, width);
-              return <circle key={entry.id} cx={x} cy={y} r="5" className="point" />;
+              const { x, y } = pointFor(entry, index, entries.length, scale);
+              return (
+                <g key={entry.id} onMouseEnter={() => setTooltip({ x, y, entry })} onFocus={() => setTooltip({ x, y, entry })} tabIndex={0} className="point-hitbox">
+                  <circle cx={x} cy={y} r="14" className="point-target" />
+                  <circle cx={x} cy={y} r="5" className="point" />
+                </g>
+              );
             })}
+            {tooltip && (
+              <g className="tooltip-layer" pointerEvents="none">
+                <line x1={tooltip.x} y1={tooltip.y} x2={tooltip.x} y2={axisBottom} className="tooltip-guide" />
+                <rect x={Math.min(Math.max(tooltip.x - 75, scale.left), axisRight - 150)} y={Math.max(tooltip.y - 74, scale.top)} width="150" height="54" rx="14" className="tooltip-box" />
+                <text x={Math.min(Math.max(tooltip.x, scale.left + 75), axisRight - 75)} y={Math.max(tooltip.y - 51, scale.top + 23)} textAnchor="middle" className="tooltip-title">
+                  {formatKg(Number(tooltip.entry.weight_kg))} kg
+                </text>
+                <text x={Math.min(Math.max(tooltip.x, scale.left + 75), axisRight - 75)} y={Math.max(tooltip.y - 30, scale.top + 44)} textAnchor="middle" className="tooltip-date">
+                  {formatDate(tooltip.entry.measured_at)}
+                </text>
+              </g>
+            )}
             {entries.map((entry, index) => {
               if (index !== 0 && index !== entries.length - 1 && entries.length > 6) return null;
-              const { x } = pointFor(entry, index, entries.length, scale, width);
+              const { x } = pointFor(entry, index, entries.length, scale);
               return <text key={`${entry.id}-date`} x={x} y="310" textAnchor="middle" className="date-label">{formatDate(entry.measured_at).slice(0, 5)}</text>;
             })}
           </svg>
@@ -136,13 +155,22 @@ function GrowthChart({ entries }: { entries: WeightEntry[] }) {
   );
 }
 
+function readImageAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error('Não foi possível ler a imagem.'));
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function Home() {
   const [token, setToken] = useState('');
   const [isAuthed, setIsAuthed] = useState(false);
-  const [profile, setProfile] = useState<Profile>({ puppy_name: '', birth_date: null });
+  const [profile, setProfile] = useState<Profile>({ puppy_name: '', birth_date: null, avatar_data_url: null });
   const [entries, setEntries] = useState<WeightEntry[]>([]);
   const [message, setMessage] = useState('');
-  const [profileDraft, setProfileDraft] = useState<Profile>({ puppy_name: '', birth_date: null });
+  const [profileDraft, setProfileDraft] = useState<Profile>({ puppy_name: '', birth_date: null, avatar_data_url: null });
   const [entryDraft, setEntryDraft] = useState({ measured_at: new Date().toISOString().slice(0, 10), weight_kg: '', notes: '' });
 
   const authHeaders = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
@@ -192,9 +220,29 @@ export default function Home() {
     try {
       const saved = await api('/api/profile', { method: 'PUT', body: JSON.stringify(profileDraft) });
       setProfile(saved);
+      setProfileDraft(saved);
       setMessage('Perfil salvo.');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Erro ao salvar perfil.');
+    }
+  }
+
+  async function handleAvatarChange(file?: File) {
+    if (!file) return;
+    setMessage('');
+    try {
+      if (!file.type.startsWith('image/')) {
+        setMessage('Selecione um arquivo de imagem.');
+        return;
+      }
+      if (file.size > 700000) {
+        setMessage('A foto é muito grande. Use uma imagem menor que 700 KB.');
+        return;
+      }
+      const dataUrl = await readImageAsDataUrl(file);
+      setProfileDraft((current) => ({ ...current, avatar_data_url: dataUrl }));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Erro ao carregar foto.');
     }
   }
 
@@ -251,12 +299,14 @@ export default function Home() {
   return (
     <main className="page">
       <header className="hero">
-        <div>
+        <div className="hero-copy">
           <div className="script-title">{profile.puppy_name ? `${profile.puppy_name}: crescimento` : 'Crescimento do filhote'}</div>
           <h1>Acompanhamento de peso</h1>
           <p>Registre as pesagens em kg e acompanhe a evolução com gráfico automático.</p>
         </div>
-        <div className="paw" aria-hidden="true">♡</div>
+        <div className="pet-avatar large" aria-label="Foto do pet">
+          {profile.avatar_data_url ? <img src={profile.avatar_data_url} alt="Foto do pet" /> : <span>🐾</span>}
+        </div>
       </header>
 
       <div className="stats">
@@ -271,6 +321,18 @@ export default function Home() {
         <section className="card">
           <div className="section-title">Dados do filhote</div>
           <form onSubmit={saveProfile} className="form-grid">
+            <div className="avatar-editor wide">
+              <div className="pet-avatar">
+                {profileDraft.avatar_data_url ? <img src={profileDraft.avatar_data_url} alt="Foto do pet" /> : <span>🐾</span>}
+              </div>
+              <div className="avatar-actions">
+                <label className="file-label">
+                  Foto do pet
+                  <input type="file" accept="image/*" onChange={(e) => handleAvatarChange(e.target.files?.[0])} />
+                </label>
+                {profileDraft.avatar_data_url && <button type="button" className="ghost" onClick={() => setProfileDraft({ ...profileDraft, avatar_data_url: null })}>Remover foto</button>}
+              </div>
+            </div>
             <label>Nome do filhote<input value={profileDraft.puppy_name} onChange={(e) => setProfileDraft({ ...profileDraft, puppy_name: e.target.value })} placeholder="Ex.: Jujuba" /></label>
             <label>Data de nascimento<input type="date" value={profileDraft.birth_date || ''} onChange={(e) => setProfileDraft({ ...profileDraft, birth_date: e.target.value || null })} /></label>
             <button type="submit">Salvar dados</button>
