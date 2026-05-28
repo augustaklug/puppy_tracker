@@ -167,6 +167,7 @@ function readImageAsDataUrl(file: File): Promise<string> {
 export default function Home() {
   const [token, setToken] = useState('');
   const [isAuthed, setIsAuthed] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [profile, setProfile] = useState<Profile>({ puppy_name: '', birth_date: null, avatar_data_url: null });
   const [entries, setEntries] = useState<WeightEntry[]>([]);
   const [message, setMessage] = useState('');
@@ -201,6 +202,16 @@ export default function Home() {
     if (savedToken) setToken(savedToken);
   }, []);
 
+  function openProfileModal() {
+    setProfileDraft(profile);
+    setIsProfileModalOpen(true);
+  }
+
+  function closeProfileModal() {
+    setProfileDraft(profile);
+    setIsProfileModalOpen(false);
+  }
+
   async function handleLogin(event: FormEvent) {
     event.preventDefault();
     setMessage('');
@@ -221,6 +232,7 @@ export default function Home() {
       const saved = await api('/api/profile', { method: 'PUT', body: JSON.stringify(profileDraft) });
       setProfile(saved);
       setProfileDraft(saved);
+      setIsProfileModalOpen(false);
       setMessage('Perfil salvo.');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Erro ao salvar perfil.');
@@ -299,13 +311,22 @@ export default function Home() {
   return (
     <main className="page">
       <header className="hero">
+        <button className="edit-profile-button" type="button" onClick={openProfileModal} aria-label="Editar dados do filhote">
+          <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 20h4.2L19.4 8.8a2.1 2.1 0 0 0 0-3L18.2 4.6a2.1 2.1 0 0 0-3 0L4 15.8V20Z" />
+            <path d="m13.8 6 4.2 4.2" />
+          </svg>
+          <span>Editar</span>
+        </button>
         <div className="hero-copy">
           <div className="script-title">{profile.puppy_name ? `${profile.puppy_name}: crescimento` : 'Crescimento do filhote'}</div>
           <h1>Acompanhamento de peso</h1>
           <p>Registre as pesagens em kg e acompanhe a evolução com gráfico automático.</p>
         </div>
-        <div className="pet-avatar large" aria-label="Foto do pet">
-          {profile.avatar_data_url ? <img src={profile.avatar_data_url} alt="Foto do pet" /> : <span>🐾</span>}
+        <div className="hero-avatar-wrap">
+          <div className="pet-avatar large" aria-label="Foto do pet">
+            {profile.avatar_data_url ? <img src={profile.avatar_data_url} alt="Foto do pet" /> : <span>🐾</span>}
+          </div>
         </div>
       </header>
 
@@ -317,38 +338,49 @@ export default function Home() {
 
       {message && <div className="message">{message}</div>}
 
-      <div className="grid-layout">
-        <section className="card">
-          <div className="section-title">Dados do filhote</div>
-          <form onSubmit={saveProfile} className="form-grid">
-            <div className="avatar-editor wide">
-              <div className="pet-avatar">
-                {profileDraft.avatar_data_url ? <img src={profileDraft.avatar_data_url} alt="Foto do pet" /> : <span>🐾</span>}
+      {isProfileModalOpen && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="profile-modal-title">
+          <section className="modal-card">
+            <div className="modal-header">
+              <div>
+                <div id="profile-modal-title" className="section-title">Dados do filhote</div>
+                <p>Atualize o nome, a data de nascimento e a foto exibida no cabeçalho.</p>
               </div>
-              <div className="avatar-actions">
-                <label className="file-label">
-                  Foto do pet
-                  <input type="file" accept="image/*" onChange={(e) => handleAvatarChange(e.target.files?.[0])} />
-                </label>
-                {profileDraft.avatar_data_url && <button type="button" className="ghost" onClick={() => setProfileDraft({ ...profileDraft, avatar_data_url: null })}>Remover foto</button>}
-              </div>
+              <button className="close-modal" type="button" onClick={closeProfileModal} aria-label="Fechar modal">×</button>
             </div>
-            <label>Nome do filhote<input value={profileDraft.puppy_name} onChange={(e) => setProfileDraft({ ...profileDraft, puppy_name: e.target.value })} placeholder="Ex.: Jujuba" /></label>
-            <label>Data de nascimento<input type="date" value={profileDraft.birth_date || ''} onChange={(e) => setProfileDraft({ ...profileDraft, birth_date: e.target.value || null })} /></label>
-            <button type="submit">Salvar dados</button>
-          </form>
-        </section>
+            <form onSubmit={saveProfile} className="form-grid">
+              <div className="avatar-editor wide">
+                <div className="pet-avatar">
+                  {profileDraft.avatar_data_url ? <img src={profileDraft.avatar_data_url} alt="Foto do pet" /> : <span>🐾</span>}
+                </div>
+                <div className="avatar-actions">
+                  <label className="file-label">
+                    Foto do pet
+                    <input type="file" accept="image/*" onChange={(e) => handleAvatarChange(e.target.files?.[0])} />
+                  </label>
+                  {profileDraft.avatar_data_url && <button type="button" className="ghost" onClick={() => setProfileDraft({ ...profileDraft, avatar_data_url: null })}>Remover foto</button>}
+                </div>
+              </div>
+              <label>Nome do filhote<input value={profileDraft.puppy_name} onChange={(e) => setProfileDraft({ ...profileDraft, puppy_name: e.target.value })} placeholder="Ex.: Jujuba" /></label>
+              <label>Data de nascimento<input type="date" value={profileDraft.birth_date || ''} onChange={(e) => setProfileDraft({ ...profileDraft, birth_date: e.target.value || null })} /></label>
+              <div className="modal-actions wide">
+                <button type="button" className="ghost" onClick={closeProfileModal}>Cancelar</button>
+                <button type="submit">Salvar dados</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
 
-        <section className="card">
-          <div className="section-title">Nova pesagem</div>
-          <form onSubmit={addEntry} className="form-grid">
-            <label>Data<input type="date" value={entryDraft.measured_at} onChange={(e) => setEntryDraft({ ...entryDraft, measured_at: e.target.value })} required /></label>
-            <label>Peso (kg)<input inputMode="decimal" value={entryDraft.weight_kg} onChange={(e) => setEntryDraft({ ...entryDraft, weight_kg: e.target.value })} placeholder="Ex.: 2,450" required /></label>
-            <label className="wide">Observações<textarea value={entryDraft.notes} onChange={(e) => setEntryDraft({ ...entryDraft, notes: e.target.value })} placeholder="Ex.: pesagem após consulta veterinária" /></label>
-            <button type="submit">Adicionar pesagem</button>
-          </form>
-        </section>
-      </div>
+      <section className="card weight-card">
+        <div className="section-title">Nova pesagem</div>
+        <form onSubmit={addEntry} className="form-grid weight-form">
+          <label>Data<input type="date" value={entryDraft.measured_at} onChange={(e) => setEntryDraft({ ...entryDraft, measured_at: e.target.value })} required /></label>
+          <label>Peso (kg)<input inputMode="decimal" value={entryDraft.weight_kg} onChange={(e) => setEntryDraft({ ...entryDraft, weight_kg: e.target.value })} placeholder="Ex.: 2,450" required /></label>
+          <label className="wide">Observações<textarea value={entryDraft.notes} onChange={(e) => setEntryDraft({ ...entryDraft, notes: e.target.value })} placeholder="Ex.: pesagem após consulta veterinária" /></label>
+          <button type="submit">Adicionar pesagem</button>
+        </form>
+      </section>
 
       <GrowthChart entries={entries} />
 
