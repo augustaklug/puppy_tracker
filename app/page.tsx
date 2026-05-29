@@ -238,9 +238,13 @@ export default function Home() {
   const applied = schedule.filter((item) => item.is_applied).sort((a, b) => (b.applied_at || '').localeCompare(a.applied_at || ''));
   const overdue = pending.filter((event) => event.is_overdue);
   const soon = pending.filter((event) => event.is_due_soon && !event.is_overdue);
-  const nextVaccine = pending.find((item) => item.care_type === 'vaccine');
-  const nextDeworm = pending.find((item) => item.care_type === 'deworming');
-  const scheduled = [nextVaccine, nextDeworm].filter(Boolean) as CareEvent[];
+  const nextByTreatmentMap = new Map<string, CareEvent>();
+  for (const item of pending) {
+    if (!nextByTreatmentMap.has(item.label)) {
+      nextByTreatmentMap.set(item.label, item);
+    }
+  }
+  const scheduled = Array.from(nextByTreatmentMap.values()).sort((a, b) => a.due_date.localeCompare(b.due_date));
   const pendingForSelect = scheduled.filter((item) => !item.is_applied);
 
   if (!isAuthed) {
