@@ -28,10 +28,121 @@ type DewormingSettings = {
 };
 type Recipient = { id: number; name: string; phone: string; api_key: string; is_active: boolean };
 
+type ChartScale = {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+  plotW: number;
+  plotH: number;
+  yMin: number;
+  yMax: number;
+  ticks: number[];
+};
+
 function formatDate(value: string) {
   if (!value) return '';
   const [year, month, day] = value.split('-');
   return `${day}/${month}/${year}`;
+}
+
+function formatKg(value: number) {
+  return value.toLocaleString('pt-BR', {
+    minimumFractionDigits: value % 1 === 0 ? 0 : 1,
+    maximumFractionDigits: 3,
+  });
+}
+
+function niceStep(rawStep: number) {
+  if (rawStep <= 0) return 1;
+  const exponent = Math.floor(Math.log10(rawStep));
+  const magnitude = 10 ** exponent;
+  const fraction = rawStep / magnitude;
+  if (fraction <= 1) return 1 * magnitude;
+  if (fraction <= 2) return 2 * magnitude;
+  if (fraction <= 2.5) return 2.5 * magnitude;
+  if (fraction <= 5) return 5 * magnitude;
+  return 10 * magnitude;
+}
+
+function getChartScale(entries: WeightEntry[], width: number, height: number): ChartScale {
+  const weights = entries.map((entry) => Number(entry.weight_kg));
+  const maxWeight = weights.length ? Math.max(...weights) : 1;
+  const tickCount = 4;
+  const step = niceStep((maxWeight * 1.05) / tickCount);
+  const yMax = Math.max(step * tickCount, step);
+  const yMin = 0;
+  const left = 62;
+  const right = 34;
+  const top = 24;
+  const bottom = 34;
+  const plotW = width - left - right;
+  const plotH = height - top - bottom;
+  const ticks = Array.from({ length: tickCount + 1 }, (_, index) => yMax - index * step);
+  return { left, right, top, bottom, plotW, plotH, yMin, yMax, ticks };
+}
+
+function pointFor(entry: WeightEntry, index: number, total: number, scale: ChartScale) {
+  const x = total === 1 ? scale.left + scale.plotW / 2 : scale.left + (index / (total - 1)) * scale.plotW;
+  const ratio = (Number(entry.weight_kg) - scale.yMin) / (scale.yMax - scale.yMin);
+  const y = scale.top + (1 - ratio) * scale.plotH;
+  return { x, y };
+}
+
+function makePath(entries: WeightEntry[], scale: ChartScale) {
+  if (!entries.length) return '';
+  return entries
+    .map((entry, index) => {
+      const { x, y } = pointFor(entry, index, entries.length, scale);
+      return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
+    })
+    .join(' ');
+}
+
+function GrowthChart({ entries }: { entries: WeightEntry[] }) {
+  const width = 720;
+  const height = 320;
+  const scale = getChartScale(entries, width, height);
+  const path = makePath(entries, scale);
+  const axisBottom = height - scale.bottom;
+  const axisRight = width - scale.right;
+
+  return (
+    <section className="card chart-card">
+      <div className="section-title">Grafico de crescimento</div>
+      <div className="chart-wrap">
+        {entries.length === 0 ? (
+          <div className="empty-chart">Cadastre a primeira pesagem para visualizar o grafico.</div>
+        ) : (
+          <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Grafico de crescimento do filhote">
+            <text x="18" y="166" className="axis-label" transform="rotate(-90 18 166)">Peso (kg)</text>
+            <line x1={scale.left} y1={scale.top} x2={scale.left} y2={axisBottom} className="axis" />
+            <line x1={scale.left} y1={axisBottom} x2={axisRight} y2={axisBottom} className="axis" />
+            {scale.ticks.map((tick) => {
+              const ratio = (tick - scale.yMin) / (scale.yMax - scale.yMin);
+              const y = scale.top + (1 - ratio) * scale.plotH;
+              return (
+                <g key={tick}>
+                  <line x1={scale.left} y1={y} x2={axisRight} y2={y} className="grid" />
+                  <text x={scale.left - 12} y={y + 4} textAnchor="end" className="tick">{formatKg(tick)}</text>
+                </g>
+              );
+            })}
+            <path d={path} className="growth-line" />
+            {entries.map((entry, index) => {
+              const { x, y } = pointFor(entry, index, entries.length, scale);
+              return <circle key={entry.id} cx={x} cy={y} r="5" className="point" />;
+            })}
+            {entries.map((entry, index) => {
+              if (index !== 0 && index !== entries.length - 1 && entries.length > 6) return null;
+              const { x } = pointFor(entry, index, entries.length, scale);
+              return <text key={`${entry.id}-date`} x={x} y="310" textAnchor="middle" className="date-label">{formatDate(entry.measured_at).slice(0, 5)}</text>;
+            })}
+          </svg>
+        )}
+      </div>
+    </section>
+  );
 }
 
 function readImageAsDataUrl(file: File): Promise<string> {
@@ -331,6 +442,8 @@ export default function Home() {
           </table>
         </div>
       </section>
+
+      <GrowthChart entries={entries} />
 
       <section className="card table-card">
         <div className="section-title">Vacinas e vermifugos agendados</div>
