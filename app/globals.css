@@ -21,7 +21,7 @@ body {
   font-family: var(--font-inter), Inter, Arial, Helvetica, sans-serif;
   min-height: 100vh;
 }
-button, input, textarea { font: inherit; }
+button, input, textarea, select { font: inherit; }
 button { cursor: pointer; }
 .login-page, .page {
   width: min(1180px, calc(100vw - 32px));
@@ -80,7 +80,7 @@ label {
   text-transform: uppercase;
   letter-spacing: .08em;
 }
-input, textarea {
+input, textarea, select {
   width: 100%;
   border: 1px solid var(--line);
   background: #fff;
@@ -94,7 +94,7 @@ input, textarea {
 input[type="file"] { padding: 10px; }
 textarea { min-height: 88px; resize: vertical; }
 .weight-form textarea { min-height: 48px; }
-input:focus, textarea:focus { border-color: var(--rose); box-shadow: 0 0 0 4px rgba(232, 183, 196, .18); }
+input:focus, textarea:focus, select:focus { border-color: var(--rose); box-shadow: 0 0 0 4px rgba(232, 183, 196, .18); }
 button {
   border: 0;
   background: var(--rose);
