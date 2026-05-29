@@ -197,6 +197,28 @@ function readImageAsDataUrl(file: File): Promise<string> {
   });
 }
 
+type WeightMetric = { deltaKg: number | null; deltaPct: number | null; gPerDay: number | null; daysDiff: number | null };
+
+function WeightVariation({ m }: { m: WeightMetric | undefined }) {
+  if (!m || m.deltaKg === null) return <span className="muted-cell">—</span>;
+  const isGain = m.deltaKg >= 0;
+  const sign = isGain ? '+' : '';
+  const gPerDayStr = m.gPerDay !== null ? `${m.gPerDay >= 0 ? '+' : ''}${Math.round(m.gPerDay)} g/dia` : null;
+  const daysStr = m.daysDiff !== null && m.daysDiff > 0 ? `${m.daysDiff} dia${m.daysDiff !== 1 ? 's' : ''}` : null;
+  return (
+    <div className="metric-cell">
+      <span className={`delta-main ${isGain ? 'delta-gain' : 'delta-loss'}`}>
+        {isGain ? '▲' : '▼'} {sign}{formatKg(m.deltaKg)} kg
+      </span>
+      <span className="delta-sub">
+        {sign}{m.deltaPct!.toFixed(1).replace('.', ',')}%
+        {gPerDayStr && ` · ${gPerDayStr}`}
+        {daysStr && ` (${daysStr})`}
+      </span>
+    </div>
+  );
+}
+
 function StatusBadge({ event }: { event: CareEvent }) {
   if (event.is_overdue) return <span className="badge badge-overdue">Vencida</span>;
   if (event.is_due_soon) return <span className="badge badge-soon">Em breve</span>;
@@ -422,6 +444,25 @@ export default function Home() {
   const scheduled = Array.from(nextByTreatmentMap.values()).sort((a, b) => a.due_date.localeCompare(b.due_date));
   const pendingForSelect = scheduled.filter((i) => !i.is_applied);
 
+  const weightMetrics = useMemo(() => {
+    const sorted = [...entries].sort((a, b) => a.measured_at.localeCompare(b.measured_at));
+    const map = new Map<number, WeightMetric>();
+    sorted.forEach((entry, i) => {
+      if (i === 0) {
+        map.set(entry.id, { deltaKg: null, deltaPct: null, gPerDay: null, daysDiff: null });
+      } else {
+        const prev = sorted[i - 1];
+        const deltaKg = Number(entry.weight_kg) - Number(prev.weight_kg);
+        const deltaPct = (deltaKg / Number(prev.weight_kg)) * 100;
+        const ms = new Date(entry.measured_at).getTime() - new Date(prev.measured_at).getTime();
+        const daysDiff = Math.round(ms / 86_400_000);
+        const gPerDay = daysDiff > 0 ? (deltaKg * 1000) / daysDiff : null;
+        map.set(entry.id, { deltaKg, deltaPct, gPerDay, daysDiff });
+      }
+    });
+    return map;
+  }, [entries]);
+
   if (!isAuthed) {
     return (
       <main className="login-page">
@@ -516,14 +557,23 @@ export default function Home() {
             </div>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Data</th><th>Peso</th><th>Observações</th><th></th></tr></thead>
+                <thead>
+                  <tr>
+                    <th>Data</th>
+                    <th>Peso</th>
+                    <th>Variação</th>
+                    <th>Observações</th>
+                    <th></th>
+                  </tr>
+                </thead>
                 <tbody>
                   {entries.length === 0
-                    ? <tr><td colSpan={4} className="empty-row">Nenhuma pesagem registrada ainda.</td></tr>
+                    ? <tr><td colSpan={5} className="empty-row">Nenhuma pesagem registrada ainda.</td></tr>
                     : entries.map((entry) => (
                       <tr key={entry.id}>
                         <td>{formatDate(entry.measured_at)}</td>
                         <td><strong>{Number(entry.weight_kg).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 3 })} kg</strong></td>
+                        <td><WeightVariation m={weightMetrics.get(entry.id)} /></td>
                         <td className="muted-cell">{entry.notes || '—'}</td>
                         <td><button type="button" className="ghost" onClick={() => deleteEntry(entry.id)}>Excluir</button></td>
                       </tr>

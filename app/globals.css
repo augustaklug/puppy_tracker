@@ -486,6 +486,25 @@ tbody tr { transition: background .1s; }
 tbody tr:hover { background: rgba(232, 246, 247, .45); }
 .muted-cell { color: var(--muted); font-size: 0.86rem; }
 
+/* ── Weight variation metric cell ── */
+.metric-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 130px;
+}
+.delta-main {
+  font-size: 0.88rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.delta-sub {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.delta-gain { color: var(--success); }
+.delta-loss { color: var(--danger); }
+
 /* ── Badges ── */
 .badge {
   display: inline-flex;
