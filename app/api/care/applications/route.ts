@@ -40,6 +40,31 @@ export async function POST(request: NextRequest) {
   }
 }
 
+export async function PATCH(request: NextRequest) {
+  if (!isAuthorized(request)) return unauthorized();
+  try {
+    const body = await request.json();
+    const eventKey = String(body.event_key || '').trim();
+    const appliedAt = String(body.applied_at || '').trim();
+    const productName = String(body.product_name || '').trim();
+    const dosage = String(body.dosage || '').trim();
+    const notes = String(body.notes || '').trim();
+
+    if (!eventKey || !appliedAt) {
+      return Response.json({ error: 'Informe evento e data de aplicação.' }, { status: 400 });
+    }
+
+    await query`
+      UPDATE care_applications
+      SET applied_at = ${appliedAt}, product_name = ${productName}, dosage = ${dosage}, notes = ${notes}
+      WHERE event_key = ${eventKey}
+    `;
+    return Response.json({ ok: true });
+  } catch (error) {
+    return Response.json({ error: error instanceof Error ? error.message : 'Erro ao editar aplicação.' }, { status: 500 });
+  }
+}
+
 export async function DELETE(request: NextRequest) {
   if (!isAuthorized(request)) return unauthorized();
   try {

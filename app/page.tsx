@@ -271,7 +271,9 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<'peso' | 'cuidados' | 'notificacoes'>('peso');
   const [careTab, setCareTab] = useState<'agendados' | 'historico'>('agendados');
   const [isWeightModalOpen, setIsWeightModalOpen] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<WeightEntry | null>(null);
   const [isApplicationModalOpen, setIsApplicationModalOpen] = useState(false);
+  const [editingCareApplication, setEditingCareApplication] = useState<CareEvent | null>(null);
   const [isDewormingSettingsOpen, setIsDewormingSettingsOpen] = useState(false);
   const [isAddRecipientOpen, setIsAddRecipientOpen] = useState(false);
 
@@ -355,15 +357,33 @@ export default function Home() {
     setMessage('');
     await runBusy('save-weight', async () => {
       try {
-        await api('/api/weights', { method: 'POST', body: JSON.stringify({ ...entryDraft, weight_kg: Number(String(entryDraft.weight_kg).replace(',', '.')) }) });
+        const weightKg = Number(String(entryDraft.weight_kg).replace(',', '.'));
+        if (editingEntry) {
+          await api('/api/weights', { method: 'PATCH', body: JSON.stringify({ id: editingEntry.id, ...entryDraft, weight_kg: weightKg }) });
+          setMessage('Pesagem atualizada.');
+        } else {
+          await api('/api/weights', { method: 'POST', body: JSON.stringify({ ...entryDraft, weight_kg: weightKg }) });
+          setMessage('Pesagem registrada.');
+        }
         setEntryDraft({ measured_at: new Date().toISOString().slice(0, 10), weight_kg: '', notes: '' });
+        setEditingEntry(null);
         setIsWeightModalOpen(false);
         await loadAll();
-        setMessage('Pesagem registrada.');
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : 'Erro ao registrar pesagem.');
+        setMessage(error instanceof Error ? error.message : 'Erro ao salvar pesagem.');
       }
     });
+  }
+
+  function openEditWeight(entry: WeightEntry) {
+    setEditingEntry(entry);
+    setEntryDraft({ measured_at: entry.measured_at, weight_kg: String(entry.weight_kg), notes: entry.notes });
+    setIsWeightModalOpen(true);
+  }
+
+  function closeWeightModal() {
+    setIsWeightModalOpen(false);
+    setEditingEntry(null);
   }
 
   async function deleteEntry(id: number) {
@@ -392,14 +412,38 @@ export default function Home() {
     setMessage('');
     await runBusy('save-application', async () => {
       try {
-        await api('/api/care/applications', { method: 'POST', body: JSON.stringify(applicationDraft) });
+        if (editingCareApplication) {
+          await api('/api/care/applications', { method: 'PATCH', body: JSON.stringify(applicationDraft) });
+          setMessage('Aplicação atualizada.');
+        } else {
+          await api('/api/care/applications', { method: 'POST', body: JSON.stringify(applicationDraft) });
+          setMessage('Aplicação registrada.');
+        }
+        setEditingCareApplication(null);
         setIsApplicationModalOpen(false);
         await loadAll();
-        setMessage('Aplicação registrada.');
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : 'Erro ao registrar aplicação.');
+        setMessage(error instanceof Error ? error.message : 'Erro ao salvar aplicação.');
       }
     });
+  }
+
+  function openEditCareApplication(careEvent: CareEvent) {
+    setEditingCareApplication(careEvent);
+    setApplicationDraft({
+      event_key: careEvent.event_key,
+      care_type: careEvent.care_type,
+      applied_at: careEvent.applied_at || new Date().toISOString().slice(0, 10),
+      product_name: careEvent.product_name || '',
+      dosage: careEvent.dosage || '',
+      notes: careEvent.notes || '',
+    });
+    setIsApplicationModalOpen(true);
+  }
+
+  function closeApplicationModal() {
+    setIsApplicationModalOpen(false);
+    setEditingCareApplication(null);
   }
 
   async function unmarkApplied(eventKey: string) {
@@ -570,7 +614,7 @@ export default function Home() {
           <section className="card">
             <div className="card-header">
               <div className="section-title">Histórico de pesagens</div>
-              <button type="button" className="action-btn" onClick={() => setIsWeightModalOpen(true)}>
+              <button type="button" className="action-btn" onClick={() => { setEditingEntry(null); setEntryDraft({ measured_at: new Date().toISOString().slice(0, 10), weight_kg: '', notes: '' }); setIsWeightModalOpen(true); }}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
                 Registrar pesagem
               </button>
@@ -599,7 +643,10 @@ export default function Home() {
                           <td><strong>{Number(entry.weight_kg).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 3 })} kg</strong></td>
                           <td><WeightVariation m={weightMetrics.get(entry.id)} /></td>
                           <td className="muted-cell">{entry.notes || '—'}</td>
-                          <td><button type="button" className="ghost" onClick={() => deleteEntry(entry.id)}>Excluir</button></td>
+                          <td className="row-actions">
+                            <button type="button" className="ghost" onClick={() => openEditWeight(entry)}>Editar</button>
+                            <button type="button" className="ghost ghost-danger" onClick={() => deleteEntry(entry.id)}>Excluir</button>
+                          </td>
                         </tr>
                       );
                     })}
@@ -684,7 +731,10 @@ export default function Home() {
                           <td>{event.dose_label}</td>
                           <td>{formatDate(event.applied_at || '')}</td>
                           <td className="muted-cell">{event.product_name || '—'}</td>
-                          <td><button type="button" className="ghost" onClick={() => unmarkApplied(event.event_key)}>Desfazer</button></td>
+                          <td className="row-actions">
+                            <button type="button" className="ghost" onClick={() => openEditCareApplication(event)}>Editar</button>
+                            <button type="button" className="ghost" onClick={() => unmarkApplied(event.event_key)}>Desfazer</button>
+                          </td>
                         </tr>
                       ))}
                   </tbody>
@@ -773,15 +823,18 @@ export default function Home() {
         <div className="modal-backdrop" role="dialog" aria-modal="true">
           <section className="modal-card">
             <div className="modal-header">
-              <div><div className="section-title">Registrar pesagem</div><p>Novo registro de peso</p></div>
-              <button type="button" className="close-btn" onClick={() => setIsWeightModalOpen(false)}>✕</button>
+              <div>
+                <div className="section-title">{editingEntry ? 'Editar pesagem' : 'Registrar pesagem'}</div>
+                <p>{editingEntry ? 'Altere os dados da pesagem' : 'Novo registro de peso'}</p>
+              </div>
+              <button type="button" className="close-btn" onClick={closeWeightModal}>✕</button>
             </div>
             <form onSubmit={addEntry} className="form-grid">
               <label>Data<input type="date" value={entryDraft.measured_at} onChange={(e) => setEntryDraft({ ...entryDraft, measured_at: e.target.value })} required /></label>
               <label>Peso (kg)<input value={entryDraft.weight_kg} onChange={(e) => setEntryDraft({ ...entryDraft, weight_kg: e.target.value })} placeholder="Ex: 3,5" required /></label>
               <label className="wide">Observações<textarea value={entryDraft.notes} onChange={(e) => setEntryDraft({ ...entryDraft, notes: e.target.value })} placeholder="Opcional" /></label>
               <div className="modal-actions wide">
-                <button type="button" className="ghost" onClick={() => setIsWeightModalOpen(false)}>Cancelar</button>
+                <button type="button" className="ghost" onClick={closeWeightModal}>Cancelar</button>
                 <button disabled={busyAction === 'save-weight'} type="submit">{busyAction === 'save-weight' ? 'Salvando…' : 'Salvar'}</button>
               </div>
             </form>
@@ -793,35 +846,47 @@ export default function Home() {
         <div className="modal-backdrop" role="dialog" aria-modal="true">
           <section className="modal-card">
             <div className="modal-header">
-              <div><div className="section-title">Registrar aplicação</div><p>Confirme os dados da vacina ou vermífugo</p></div>
-              <button type="button" className="close-btn" onClick={() => setIsApplicationModalOpen(false)}>✕</button>
+              <div>
+                <div className="section-title">{editingCareApplication ? 'Editar aplicação' : 'Registrar aplicação'}</div>
+                <p>Confirme os dados da vacina ou vermífugo</p>
+              </div>
+              <button type="button" className="close-btn" onClick={closeApplicationModal}>✕</button>
             </div>
             <form onSubmit={markApplied} className="form-grid">
-              <label className="wide">Evento
-                <select value={applicationDraft.event_key} onChange={(e) => {
-                  const eventKey = e.target.value;
-                  const found = pendingForSelect.find((item) => item.event_key === eventKey);
-                  setApplicationDraft((old) => ({
-                    ...old,
-                    event_key: eventKey,
-                    care_type: found?.care_type || old.care_type,
-                    product_name: found?.care_type === 'deworming' ? deworming.medication_name : old.product_name,
-                    dosage: found?.care_type === 'deworming' ? deworming.dosage : old.dosage,
-                  }));
-                }}>
-                  <option value="">Selecione</option>
-                  {pendingForSelect.map((event) => (
-                    <option key={event.event_key} value={event.event_key}>{event.label} — {event.dose_label} ({formatDate(event.due_date)})</option>
-                  ))}
-                </select>
-              </label>
+              {editingCareApplication ? (
+                <div className="wide event-info">
+                  <span className={`type-chip ${editingCareApplication.care_type}`}>
+                    {editingCareApplication.care_type === 'vaccine' ? 'Vacina' : 'Vermífugo'}
+                  </span>
+                  {editingCareApplication.label} — {editingCareApplication.dose_label}
+                </div>
+              ) : (
+                <label className="wide">Evento
+                  <select value={applicationDraft.event_key} onChange={(e) => {
+                    const eventKey = e.target.value;
+                    const found = pendingForSelect.find((item) => item.event_key === eventKey);
+                    setApplicationDraft((old) => ({
+                      ...old,
+                      event_key: eventKey,
+                      care_type: found?.care_type || old.care_type,
+                      product_name: found?.care_type === 'deworming' ? deworming.medication_name : old.product_name,
+                      dosage: found?.care_type === 'deworming' ? deworming.dosage : old.dosage,
+                    }));
+                  }}>
+                    <option value="">Selecione</option>
+                    {pendingForSelect.map((event) => (
+                      <option key={event.event_key} value={event.event_key}>{event.label} — {event.dose_label} ({formatDate(event.due_date)})</option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <label>Data aplicada<input type="date" value={applicationDraft.applied_at} onChange={(e) => setApplicationDraft({ ...applicationDraft, applied_at: e.target.value })} required /></label>
               <label>Produto<input value={applicationDraft.product_name} onChange={(e) => setApplicationDraft({ ...applicationDraft, product_name: e.target.value })} /></label>
               <label>Posologia<input value={applicationDraft.dosage} onChange={(e) => setApplicationDraft({ ...applicationDraft, dosage: e.target.value })} /></label>
               <label className="wide">Observações<textarea value={applicationDraft.notes} onChange={(e) => setApplicationDraft({ ...applicationDraft, notes: e.target.value })} /></label>
               <div className="modal-actions wide">
-                <button type="button" className="ghost" onClick={() => setIsApplicationModalOpen(false)}>Cancelar</button>
-                <button disabled={busyAction === 'save-application'} type="submit">{busyAction === 'save-application' ? 'Salvando…' : 'Registrar'}</button>
+                <button type="button" className="ghost" onClick={closeApplicationModal}>Cancelar</button>
+                <button disabled={busyAction === 'save-application'} type="submit">{busyAction === 'save-application' ? 'Salvando…' : editingCareApplication ? 'Salvar' : 'Registrar'}</button>
               </div>
             </form>
           </section>

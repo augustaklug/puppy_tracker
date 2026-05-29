@@ -39,6 +39,31 @@ export async function POST(request: NextRequest) {
   }
 }
 
+export async function PATCH(request: NextRequest) {
+  if (!isAuthorized(request)) return unauthorized();
+  try {
+    const body = await request.json();
+    const id = Number(body.id);
+    const measuredAt = String(body.measured_at || '').trim();
+    const weightKg = Number(body.weight_kg);
+    const notes = String(body.notes || '').trim();
+
+    if (!id || !measuredAt || Number.isNaN(weightKg) || weightKg <= 0) {
+      return Response.json({ error: 'Informe um ID, data e peso válidos.' }, { status: 400 });
+    }
+
+    const rows = await query`
+      UPDATE puppy_weights
+      SET measured_at = ${measuredAt}, weight_kg = ${weightKg}, notes = ${notes}
+      WHERE id = ${id}
+      RETURNING id, measured_at::text AS measured_at, weight_kg::float AS weight_kg, notes;
+    `;
+    return Response.json(rows[0]);
+  } catch (error) {
+    return Response.json({ error: error instanceof Error ? error.message : 'Erro ao editar pesagem.' }, { status: 500 });
+  }
+}
+
 export async function DELETE(request: NextRequest) {
   if (!isAuthorized(request)) return unauthorized();
   try {

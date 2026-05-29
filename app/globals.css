@@ -485,6 +485,8 @@ tbody tr:last-child td { border-bottom: 0; }
 tbody tr { transition: background .1s; }
 tbody tr:hover { background: rgba(232, 246, 247, .45); }
 .muted-cell { color: var(--muted); font-size: 0.86rem; }
+.row-actions { display: flex; gap: 6px; align-items: center; white-space: nowrap; }
+.event-info { display: flex; align-items: center; gap: 8px; padding: 10px 0 4px; font-size: 0.93rem; color: var(--text); }
 
 /* ── Weight variation metric cell ── */
 .metric-cell {
