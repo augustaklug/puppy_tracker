@@ -47,19 +47,14 @@ export default function Home() {
   const [token, setToken] = useState('');
   const [isAuthed, setIsAuthed] = useState(false);
   const [message, setMessage] = useState('');
+  const [busyAction, setBusyAction] = useState('');
   const [profile, setProfile] = useState<Profile>({ puppy_name: '', birth_date: null, avatar_data_url: null });
   const [profileDraft, setProfileDraft] = useState<Profile>({ puppy_name: '', birth_date: null, avatar_data_url: null });
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [entries, setEntries] = useState<WeightEntry[]>([]);
   const [entryDraft, setEntryDraft] = useState({ measured_at: new Date().toISOString().slice(0, 10), weight_kg: '', notes: '' });
-
   const [schedule, setSchedule] = useState<CareEvent[]>([]);
-  const [deworming, setDeworming] = useState<DewormingSettings>({
-    medication_name: '',
-    dosage: '',
-    maintenance_interval_days: 30,
-    maintenance_end_age_months: 6,
-  });
+  const [deworming, setDeworming] = useState<DewormingSettings>({ medication_name: '', dosage: '', maintenance_interval_days: 30, maintenance_end_age_months: 6 });
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [applicationDraft, setApplicationDraft] = useState({
     event_key: '',
@@ -87,6 +82,15 @@ export default function Home() {
     return data;
   }
 
+  async function runBusy(action: string, fn: () => Promise<void>) {
+    setBusyAction(action);
+    try {
+      await fn();
+    } finally {
+      setBusyAction('');
+    }
+  }
+
   async function loadAll() {
     const [profileData, weightsData, scheduleData, recipientData] = await Promise.all([
       api('/api/profile'),
@@ -110,150 +114,134 @@ export default function Home() {
   async function handleLogin(event: FormEvent) {
     event.preventDefault();
     setMessage('');
-    try {
-      window.localStorage.setItem('puppy-token', token);
-      await api('/api/init', { method: 'POST', body: '{}' });
-      await loadAll();
-      setIsAuthed(true);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Nao foi possivel acessar.');
-    }
+    await runBusy('login', async () => {
+      try {
+        window.localStorage.setItem('puppy-token', token);
+        await api('/api/init', { method: 'POST', body: '{}' });
+        await loadAll();
+        setIsAuthed(true);
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : 'Nao foi possivel acessar.');
+      }
+    });
   }
 
   async function saveProfile(event: FormEvent) {
     event.preventDefault();
     setMessage('');
-    try {
-      const saved = await api('/api/profile', { method: 'PUT', body: JSON.stringify(profileDraft) });
-      setProfile(saved);
-      setProfileDraft(saved);
-      setIsProfileModalOpen(false);
-      await loadAll();
-      setMessage('Perfil salvo.');
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Erro ao salvar perfil.');
-    }
+    await runBusy('save-profile', async () => {
+      try {
+        const saved = await api('/api/profile', { method: 'PUT', body: JSON.stringify(profileDraft) });
+        setProfile(saved);
+        setProfileDraft(saved);
+        setIsProfileModalOpen(false);
+        await loadAll();
+        setMessage('Perfil salvo.');
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : 'Erro ao salvar perfil.');
+      }
+    });
   }
 
   async function handleAvatarChange(file?: File) {
     if (!file) return;
-    try {
-      const dataUrl = await readImageAsDataUrl(file);
-      setProfileDraft((current) => ({ ...current, avatar_data_url: dataUrl }));
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Erro ao carregar foto.');
-    }
+    const dataUrl = await readImageAsDataUrl(file);
+    setProfileDraft((current) => ({ ...current, avatar_data_url: dataUrl }));
   }
 
   async function addEntry(event: FormEvent) {
     event.preventDefault();
     setMessage('');
-    try {
-      await api('/api/weights', {
-        method: 'POST',
-        body: JSON.stringify({ ...entryDraft, weight_kg: Number(String(entryDraft.weight_kg).replace(',', '.')) }),
-      });
-      setEntryDraft({ measured_at: new Date().toISOString().slice(0, 10), weight_kg: '', notes: '' });
-      await loadAll();
-      setMessage('Pesagem cadastrada.');
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Erro ao cadastrar pesagem.');
-    }
+    await runBusy('save-weight', async () => {
+      try {
+        await api('/api/weights', { method: 'POST', body: JSON.stringify({ ...entryDraft, weight_kg: Number(String(entryDraft.weight_kg).replace(',', '.')) }) });
+        setEntryDraft({ measured_at: new Date().toISOString().slice(0, 10), weight_kg: '', notes: '' });
+        await loadAll();
+        setMessage('Pesagem cadastrada.');
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : 'Erro ao cadastrar pesagem.');
+      }
+    });
   }
 
   async function deleteEntry(id: number) {
     setMessage('');
-    try {
-      await api(`/api/weights?id=${id}`, { method: 'DELETE' });
-      await loadAll();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Erro ao excluir pesagem.');
-    }
+    await api(`/api/weights?id=${id}`, { method: 'DELETE' });
+    await loadAll();
   }
 
   async function saveDewormingSettings(event: FormEvent) {
     event.preventDefault();
     setMessage('');
-    try {
-      await api('/api/care/deworming-settings', { method: 'PUT', body: JSON.stringify(deworming) });
-      await loadAll();
-      setMessage('Configuracao de vermifugacao salva.');
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Erro ao salvar configuracao.');
-    }
+    await runBusy('save-deworm', async () => {
+      try {
+        await api('/api/care/deworming-settings', { method: 'PUT', body: JSON.stringify(deworming) });
+        await loadAll();
+        setMessage('Configuracao de vermifugacao salva.');
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : 'Erro ao salvar configuracao.');
+      }
+    });
   }
 
   async function markApplied(event: FormEvent) {
     event.preventDefault();
     setMessage('');
-    try {
-      await api('/api/care/applications', { method: 'POST', body: JSON.stringify(applicationDraft) });
-      await loadAll();
-      setMessage('Aplicacao registrada.');
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Erro ao registrar aplicacao.');
-    }
+    await runBusy('save-application', async () => {
+      try {
+        await api('/api/care/applications', { method: 'POST', body: JSON.stringify(applicationDraft) });
+        await loadAll();
+        setMessage('Aplicacao registrada.');
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : 'Erro ao registrar aplicacao.');
+      }
+    });
   }
 
   async function unmarkApplied(eventKey: string) {
     setMessage('');
-    try {
-      await api(`/api/care/applications?event_key=${encodeURIComponent(eventKey)}`, { method: 'DELETE' });
-      await loadAll();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Erro ao remover aplicacao.');
-    }
+    await api(`/api/care/applications?event_key=${encodeURIComponent(eventKey)}`, { method: 'DELETE' });
+    await loadAll();
   }
 
   async function addRecipient(event: FormEvent) {
     event.preventDefault();
     setMessage('');
-    try {
-      await api('/api/notifications/recipients', { method: 'POST', body: JSON.stringify(recipientDraft) });
-      setRecipientDraft({ name: '', phone: '', api_key: '', is_active: true });
-      await loadAll();
-      setMessage('Destinatario adicionado.');
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Erro ao adicionar destinatario.');
-    }
+    await runBusy('save-recipient', async () => {
+      try {
+        await api('/api/notifications/recipients', { method: 'POST', body: JSON.stringify(recipientDraft) });
+        setRecipientDraft({ name: '', phone: '', api_key: '', is_active: true });
+        await loadAll();
+        setMessage('Destinatario adicionado.');
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : 'Erro ao adicionar destinatario.');
+      }
+    });
   }
 
   async function toggleRecipient(recipient: Recipient) {
-    setMessage('');
-    try {
-      await api('/api/notifications/recipients', {
-        method: 'PUT',
-        body: JSON.stringify({ ...recipient, is_active: !recipient.is_active }),
-      });
-      await loadAll();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Erro ao atualizar destinatario.');
-    }
+    await api('/api/notifications/recipients', { method: 'PUT', body: JSON.stringify({ ...recipient, is_active: !recipient.is_active }) });
+    await loadAll();
   }
-
   async function removeRecipient(id: number) {
-    setMessage('');
-    try {
-      await api(`/api/notifications/recipients?id=${id}`, { method: 'DELETE' });
-      await loadAll();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Erro ao remover destinatario.');
-    }
+    await api(`/api/notifications/recipients?id=${id}`, { method: 'DELETE' });
+    await loadAll();
   }
-
   async function testRecipient(id: number) {
-    setMessage('');
-    try {
+    await runBusy(`test-${id}`, async () => {
       await api('/api/notifications/test', { method: 'POST', body: JSON.stringify({ recipient_id: id }) });
       setMessage('Teste enviado para o WhatsApp.');
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Erro ao enviar teste.');
-    }
+    });
   }
 
-  const pending = schedule.filter((event) => !event.is_applied);
+  const pending = schedule.filter((item) => !item.is_applied).sort((a, b) => a.due_date.localeCompare(b.due_date));
+  const applied = schedule.filter((item) => item.is_applied).sort((a, b) => (b.applied_at || '').localeCompare(a.applied_at || ''));
   const overdue = pending.filter((event) => event.is_overdue);
   const soon = pending.filter((event) => event.is_due_soon && !event.is_overdue);
+  const nextVaccine = pending.find((item) => item.care_type === 'vaccine');
+  const nextDeworm = pending.find((item) => item.care_type === 'deworming');
+  const scheduled = [nextVaccine, nextDeworm].filter(Boolean) as CareEvent[];
+  const pendingForSelect = scheduled.filter((item) => !item.is_applied);
 
   if (!isAuthed) {
     return (
@@ -263,11 +251,8 @@ export default function Home() {
           <h1>Acompanhamento</h1>
           <p>Informe o token configurado para acessar os registros.</p>
           <form onSubmit={handleLogin} className="login-form">
-            <label>
-              Token de acesso
-              <input type="password" value={token} onChange={(event) => setToken(event.target.value)} />
-            </label>
-            <button type="submit">Entrar</button>
+            <label>Token de acesso<input type="password" value={token} onChange={(event) => setToken(event.target.value)} /></label>
+            <button disabled={busyAction === 'login'} type="submit">{busyAction === 'login' ? 'Entrando...' : 'Entrar'}</button>
           </form>
           {message && <div className="message error">{message}</div>}
         </div>
@@ -284,9 +269,7 @@ export default function Home() {
           <h1>Painel do filhote</h1>
           <p>Pesagem, vacinas, vermifugacao e lembretes por WhatsApp.</p>
         </div>
-        <div className="hero-avatar-wrap">
-          <div className="pet-avatar large">{profile.avatar_data_url ? <img src={profile.avatar_data_url} alt="Foto do pet" /> : <span>PET</span>}</div>
-        </div>
+        <div className="hero-avatar-wrap"><div className="pet-avatar large">{profile.avatar_data_url ? <img src={profile.avatar_data_url} alt="Foto do pet" /> : <span>PET</span>}</div></div>
       </header>
 
       <div className="stats">
@@ -303,15 +286,13 @@ export default function Home() {
             <form onSubmit={saveProfile} className="form-grid">
               <div className="avatar-editor wide">
                 <div className="pet-avatar">{profileDraft.avatar_data_url ? <img src={profileDraft.avatar_data_url} alt="Foto do pet" /> : <span>PET</span>}</div>
-                <div className="avatar-actions">
-                  <label className="file-label">Foto<input type="file" accept="image/*" onChange={(e) => handleAvatarChange(e.target.files?.[0])} /></label>
-                </div>
+                <div className="avatar-actions"><label className="file-label">Foto<input type="file" accept="image/*" onChange={(e) => handleAvatarChange(e.target.files?.[0])} /></label></div>
               </div>
               <label>Nome<input value={profileDraft.puppy_name} onChange={(e) => setProfileDraft({ ...profileDraft, puppy_name: e.target.value })} /></label>
               <label>Data de nascimento<input type="date" value={profileDraft.birth_date || ''} onChange={(e) => setProfileDraft({ ...profileDraft, birth_date: e.target.value || null })} /></label>
               <div className="modal-actions wide">
                 <button type="button" className="ghost" onClick={() => setIsProfileModalOpen(false)}>Cancelar</button>
-                <button type="submit">Salvar</button>
+                <button disabled={busyAction === 'save-profile'} type="submit">{busyAction === 'save-profile' ? 'Salvando...' : 'Salvar'}</button>
               </div>
             </form>
           </section>
@@ -324,7 +305,7 @@ export default function Home() {
           <label>Data<input type="date" value={entryDraft.measured_at} onChange={(e) => setEntryDraft({ ...entryDraft, measured_at: e.target.value })} required /></label>
           <label>Peso (kg)<input value={entryDraft.weight_kg} onChange={(e) => setEntryDraft({ ...entryDraft, weight_kg: e.target.value })} required /></label>
           <label className="wide">Observacoes<textarea value={entryDraft.notes} onChange={(e) => setEntryDraft({ ...entryDraft, notes: e.target.value })} /></label>
-          <button type="submit">Adicionar</button>
+          <button disabled={busyAction === 'save-weight'} type="submit">{busyAction === 'save-weight' ? 'Salvando...' : 'Adicionar'}</button>
         </form>
       </section>
 
@@ -334,9 +315,7 @@ export default function Home() {
           <table>
             <thead><tr><th>Data</th><th>Peso (kg)</th><th>Observacoes</th><th></th></tr></thead>
             <tbody>
-              {entries.length === 0 ? (
-                <tr><td colSpan={4} className="empty-row">Nenhuma pesagem cadastrada.</td></tr>
-              ) : entries.map((entry) => (
+              {entries.length === 0 ? <tr><td colSpan={4} className="empty-row">Nenhuma pesagem cadastrada.</td></tr> : entries.map((entry) => (
                 <tr key={entry.id}>
                   <td>{formatDate(entry.measured_at)}</td>
                   <td>{Number(entry.weight_kg).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 3 })}</td>
@@ -350,22 +329,19 @@ export default function Home() {
       </section>
 
       <section className="card table-card">
-        <div className="section-title">Cronograma de vacinas e vermifugacao</div>
-        {!profile.birth_date ? (
-          <p>Cadastre a data de nascimento no perfil para gerar o cronograma.</p>
-        ) : (
+        <div className="section-title">Vacinas e vermifugos agendados</div>
+        {!profile.birth_date ? <p>Cadastre a data de nascimento no perfil para gerar o cronograma.</p> : (
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Tipo</th><th>Dose</th><th>Janela</th><th>Prevista</th><th>Status</th><th></th></tr></thead>
+              <thead><tr><th>Tipo</th><th>Dose</th><th>Janela</th><th>Prevista</th><th>Status</th></tr></thead>
               <tbody>
-                {schedule.map((event) => (
+                {scheduled.length === 0 ? <tr><td colSpan={5} className="empty-row">Nenhum agendamento pendente.</td></tr> : scheduled.map((event) => (
                   <tr key={event.event_key}>
                     <td>{event.label}</td>
                     <td>{event.dose_label}</td>
                     <td>{event.window_start && event.window_end ? `${formatDate(event.window_start)} a ${formatDate(event.window_end)}` : '-'}</td>
                     <td>{formatDate(event.due_date)}</td>
-                    <td>{event.is_applied ? `Aplicada em ${formatDate(event.applied_at || '')}` : event.is_overdue ? 'Vencida' : event.is_due_soon ? 'Vence em breve' : 'Pendente'}</td>
-                    <td>{event.is_applied ? <button type="button" className="ghost" onClick={() => unmarkApplied(event.event_key)}>Desfazer</button> : '-'}</td>
+                    <td>{event.is_overdue ? 'Vencida' : event.is_due_soon ? 'Vence em breve' : 'Pendente'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -374,13 +350,33 @@ export default function Home() {
         )}
       </section>
 
+      <section className="card table-card">
+        <div className="section-title">Vacinas e vermifugos aplicados</div>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Tipo</th><th>Dose</th><th>Aplicada em</th><th>Produto</th><th></th></tr></thead>
+            <tbody>
+              {applied.length === 0 ? <tr><td colSpan={5} className="empty-row">Nenhuma dose aplicada.</td></tr> : applied.map((event) => (
+                <tr key={event.event_key}>
+                  <td>{event.label}</td>
+                  <td>{event.dose_label}</td>
+                  <td>{formatDate(event.applied_at || '')}</td>
+                  <td>{event.product_name || '-'}</td>
+                  <td><button type="button" className="ghost" onClick={() => unmarkApplied(event.event_key)}>Desfazer</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <section className="card">
         <div className="section-title">Marcar aplicacao</div>
         <form onSubmit={markApplied} className="form-grid">
           <label>Evento
             <select value={applicationDraft.event_key} onChange={(e) => {
               const eventKey = e.target.value;
-              const found = schedule.find((item) => item.event_key === eventKey);
+              const found = pendingForSelect.find((item) => item.event_key === eventKey);
               setApplicationDraft((old) => ({
                 ...old,
                 event_key: eventKey,
@@ -390,16 +386,14 @@ export default function Home() {
               }));
             }}>
               <option value="">Selecione</option>
-              {schedule.filter((event) => !event.is_applied).map((event) => (
-                <option key={event.event_key} value={event.event_key}>{event.label} - {event.dose_label} ({formatDate(event.due_date)})</option>
-              ))}
+              {pendingForSelect.map((event) => <option key={event.event_key} value={event.event_key}>{event.label} - {event.dose_label} ({formatDate(event.due_date)})</option>)}
             </select>
           </label>
           <label>Data aplicada<input type="date" value={applicationDraft.applied_at} onChange={(e) => setApplicationDraft({ ...applicationDraft, applied_at: e.target.value })} required /></label>
           <label>Produto<input value={applicationDraft.product_name} onChange={(e) => setApplicationDraft({ ...applicationDraft, product_name: e.target.value })} /></label>
           <label>Posologia<input value={applicationDraft.dosage} onChange={(e) => setApplicationDraft({ ...applicationDraft, dosage: e.target.value })} /></label>
           <label className="wide">Observacoes<textarea value={applicationDraft.notes} onChange={(e) => setApplicationDraft({ ...applicationDraft, notes: e.target.value })} /></label>
-          <button type="submit">Registrar aplicacao</button>
+          <button disabled={busyAction === 'save-application'} type="submit">{busyAction === 'save-application' ? 'Salvando...' : 'Registrar aplicacao'}</button>
         </form>
       </section>
 
@@ -410,7 +404,7 @@ export default function Home() {
           <label>Posologia<input value={deworming.dosage} onChange={(e) => setDeworming({ ...deworming, dosage: e.target.value })} /></label>
           <label>Intervalo de manutencao (dias)<input type="number" min={1} value={deworming.maintenance_interval_days} onChange={(e) => setDeworming({ ...deworming, maintenance_interval_days: Number(e.target.value) || 30 })} /></label>
           <label>Idade final (meses)<input type="number" min={1} value={deworming.maintenance_end_age_months} onChange={(e) => setDeworming({ ...deworming, maintenance_end_age_months: Number(e.target.value) || 6 })} /></label>
-          <button type="submit">Salvar configuracao</button>
+          <button disabled={busyAction === 'save-deworm'} type="submit">{busyAction === 'save-deworm' ? 'Salvando...' : 'Salvar configuracao'}</button>
         </form>
       </section>
 
@@ -420,21 +414,19 @@ export default function Home() {
           <label>Nome<input value={recipientDraft.name} onChange={(e) => setRecipientDraft({ ...recipientDraft, name: e.target.value })} /></label>
           <label>Telefone com DDI<input value={recipientDraft.phone} onChange={(e) => setRecipientDraft({ ...recipientDraft, phone: e.target.value })} required /></label>
           <label className="wide">API Key<input value={recipientDraft.api_key} onChange={(e) => setRecipientDraft({ ...recipientDraft, api_key: e.target.value })} required /></label>
-          <button type="submit">Adicionar numero</button>
+          <button disabled={busyAction === 'save-recipient'} type="submit">{busyAction === 'save-recipient' ? 'Salvando...' : 'Adicionar numero'}</button>
         </form>
         <div className="table-wrap" style={{ marginTop: 12 }}>
           <table>
             <thead><tr><th>Nome</th><th>Telefone</th><th>Status</th><th>Acoes</th></tr></thead>
             <tbody>
-              {recipients.length === 0 ? (
-                <tr><td colSpan={4} className="empty-row">Nenhum numero cadastrado.</td></tr>
-              ) : recipients.map((recipient) => (
+              {recipients.length === 0 ? <tr><td colSpan={4} className="empty-row">Nenhum numero cadastrado.</td></tr> : recipients.map((recipient) => (
                 <tr key={recipient.id}>
                   <td>{recipient.name || '-'}</td>
                   <td>{recipient.phone}</td>
                   <td>{recipient.is_active ? 'Ativo' : 'Inativo'}</td>
                   <td>
-                    <button type="button" className="ghost" onClick={() => testRecipient(recipient.id)}>Testar</button>{' '}
+                    <button disabled={busyAction === `test-${recipient.id}`} type="button" className="ghost" onClick={() => testRecipient(recipient.id)}>{busyAction === `test-${recipient.id}` ? 'Enviando...' : 'Testar'}</button>{' '}
                     <button type="button" className="ghost" onClick={() => toggleRecipient(recipient)}>{recipient.is_active ? 'Desativar' : 'Ativar'}</button>{' '}
                     <button type="button" className="ghost" onClick={() => removeRecipient(recipient.id)}>Excluir</button>
                   </td>

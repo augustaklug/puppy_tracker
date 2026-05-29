@@ -36,27 +36,28 @@ export type CareEvent = {
   is_due_soon: boolean;
 };
 
-type VaccinePlan = {
-  key: string;
-  label: string;
-  dose_label: string;
-  startDays: number;
-  endDays: number;
-};
-
 const DAY_MS = 86400000;
 const DUE_SOON_DAYS = 3;
 const MIN_VACCINE_INTERVAL_DAYS = 21;
 
-const VACCINE_PLANS: VaccinePlan[] = [
-  { key: 'poly-1', label: 'Polivalente (V8 ou V10)', dose_label: '1a dose', startDays: 42, endDays: 56 },
-  { key: 'giardia-1', label: 'Giardia', dose_label: '1a dose', startDays: 56, endDays: 70 },
-  { key: 'flu-1', label: 'Gripe Canina', dose_label: '1a dose', startDays: 56, endDays: 70 },
-  { key: 'poly-2', label: 'Polivalente (V8 ou V10)', dose_label: '2a dose', startDays: 63, endDays: 84 },
-  { key: 'giardia-2', label: 'Giardia', dose_label: 'Reforco', startDays: 63, endDays: 84 },
-  { key: 'flu-2', label: 'Gripe Canina', dose_label: 'Reforco', startDays: 63, endDays: 84 },
-  { key: 'poly-3', label: 'Polivalente (V8 ou V10)', dose_label: '3a dose', startDays: 84, endDays: 112 },
-  { key: 'rabies-1', label: 'Antirrabica', dose_label: 'Dose obrigatoria', startDays: 84, endDays: 112 },
+type VaccineStep = {
+  key: string;
+  group: 'poly' | 'giardia' | 'flu' | 'rabies';
+  label: string;
+  dose_label: string;
+  start_days: number;
+  end_days: number;
+};
+
+const VACCINE_STEPS: VaccineStep[] = [
+  { key: 'poly-1', group: 'poly', label: 'Polivalente (V8 ou V10)', dose_label: '1a dose', start_days: 42, end_days: 56 },
+  { key: 'giardia-1', group: 'giardia', label: 'Giardia', dose_label: '1a dose', start_days: 56, end_days: 70 },
+  { key: 'flu-1', group: 'flu', label: 'Gripe Canina', dose_label: '1a dose', start_days: 56, end_days: 70 },
+  { key: 'poly-2', group: 'poly', label: 'Polivalente (V8 ou V10)', dose_label: '2a dose', start_days: 63, end_days: 84 },
+  { key: 'giardia-2', group: 'giardia', label: 'Giardia', dose_label: 'Reforco', start_days: 63, end_days: 84 },
+  { key: 'flu-2', group: 'flu', label: 'Gripe Canina', dose_label: 'Reforco', start_days: 63, end_days: 84 },
+  { key: 'poly-3', group: 'poly', label: 'Polivalente (V8 ou V10)', dose_label: '3a dose', start_days: 84, end_days: 112 },
+  { key: 'rabies-1', group: 'rabies', label: 'Antirrabica', dose_label: 'Dose obrigatoria', start_days: 84, end_days: 112 },
 ];
 
 function atUtcMidnight(value: string | Date) {
@@ -100,88 +101,33 @@ function applicationMap(applications: CareApplication[]) {
   return map;
 }
 
-function yearlyBoosterEvent(
-  key: string,
-  label: string,
-  lastAppliedAt: string | null,
-  applicationsByKey: Map<string, CareApplication>,
-  now: Date
-): CareEvent | null {
-  if (!lastAppliedAt) return null;
-  const dueDate = addDays(atUtcMidnight(lastAppliedAt), 365);
-  const eventKey = `${key}-annual-${dueDate.getUTCFullYear()}`;
-  const applied = applicationsByKey.get(eventKey);
-  const s = statusFor(dueDate, now);
-  return {
-    event_key: eventKey,
-    care_type: 'vaccine',
-    label,
-    dose_label: 'Reforco anual',
-    due_date: formatDate(dueDate),
-    window_start: null,
-    window_end: null,
-    is_applied: Boolean(applied),
-    applied_at: applied?.applied_at ?? null,
-    notes: applied?.notes ?? '',
-    product_name: applied?.product_name ?? '',
-    dosage: applied?.dosage ?? '',
-    is_overdue: !applied && s.is_overdue,
-    is_due_soon: !applied && s.is_due_soon,
-  };
-}
-
-export function buildCareSchedule(
-  profile: Profile,
-  settings: DewormingSettings,
-  applications: CareApplication[]
-) {
-  if (!profile.birth_date) return [];
-
-  const birth = atUtcMidnight(profile.birth_date);
-  const now = todayUtc();
-  const appMap = applicationMap(applications);
-
+function buildVaccineEvents(birth: Date, appMap: Map<string, CareApplication>, now: Date) {
   const events: CareEvent[] = [];
-  let lastPolyApplied: string | null = null;
-  let lastGiardiaApplied: string | null = null;
-  let lastFluApplied: string | null = null;
-  let lastRabiesApplied: string | null = null;
+  const lastByGroup: Record<string, string | null> = {
+    poly: null,
+    giardia: null,
+    flu: null,
+    rabies: null,
+  };
 
-  for (const plan of VACCINE_PLANS) {
-    const windowStart = addDays(birth, plan.startDays);
-    const windowEnd = addDays(birth, plan.endDays);
+  for (const step of VACCINE_STEPS) {
+    const windowStart = addDays(birth, step.start_days);
+    const windowEnd = addDays(birth, step.end_days);
     let dueDate = windowEnd;
-
-    if (plan.key === 'poly-2' && lastPolyApplied) {
-      const minDate = addDays(atUtcMidnight(lastPolyApplied), MIN_VACCINE_INTERVAL_DAYS);
-      if (minDate > dueDate) dueDate = minDate;
-    }
-    if (plan.key === 'poly-3' && lastPolyApplied) {
-      const minDate = addDays(atUtcMidnight(lastPolyApplied), MIN_VACCINE_INTERVAL_DAYS);
-      if (minDate > dueDate) dueDate = minDate;
-    }
-    if (plan.key === 'giardia-2' && lastGiardiaApplied) {
-      const minDate = addDays(atUtcMidnight(lastGiardiaApplied), MIN_VACCINE_INTERVAL_DAYS);
-      if (minDate > dueDate) dueDate = minDate;
-    }
-    if (plan.key === 'flu-2' && lastFluApplied) {
-      const minDate = addDays(atUtcMidnight(lastFluApplied), MIN_VACCINE_INTERVAL_DAYS);
+    const lastFromGroup = lastByGroup[step.group];
+    if (lastFromGroup) {
+      const minDate = addDays(atUtcMidnight(lastFromGroup), MIN_VACCINE_INTERVAL_DAYS);
       if (minDate > dueDate) dueDate = minDate;
     }
 
-    const applied = appMap.get(plan.key);
-    if (applied) {
-      if (plan.key.startsWith('poly-')) lastPolyApplied = applied.applied_at;
-      if (plan.key.startsWith('giardia-')) lastGiardiaApplied = applied.applied_at;
-      if (plan.key.startsWith('flu-')) lastFluApplied = applied.applied_at;
-      if (plan.key.startsWith('rabies-')) lastRabiesApplied = applied.applied_at;
-    }
+    const applied = appMap.get(step.key);
+    if (applied) lastByGroup[step.group] = applied.applied_at;
     const s = statusFor(dueDate, now);
     events.push({
-      event_key: plan.key,
+      event_key: step.key,
       care_type: 'vaccine',
-      label: plan.label,
-      dose_label: plan.dose_label,
+      label: step.label,
+      dose_label: step.dose_label,
       due_date: formatDate(dueDate),
       window_start: formatDate(windowStart),
       window_end: formatDate(windowEnd),
@@ -195,31 +141,64 @@ export function buildCareSchedule(
     });
   }
 
-  const annual = [
-    yearlyBoosterEvent('poly', 'Polivalente (V8 ou V10)', lastPolyApplied, appMap, now),
-    yearlyBoosterEvent('giardia', 'Giardia', lastGiardiaApplied, appMap, now),
-    yearlyBoosterEvent('flu', 'Gripe Canina', lastFluApplied, appMap, now),
-    yearlyBoosterEvent('rabies', 'Antirrabica', lastRabiesApplied, appMap, now),
-  ].filter(Boolean) as CareEvent[];
-  events.push(...annual);
+  const annualEvents: CareEvent[] = [];
+  const annualPlans: Array<{ key: string; label: string; group: keyof typeof lastByGroup }> = [
+    { key: 'poly', label: 'Polivalente (V8 ou V10)', group: 'poly' },
+    { key: 'giardia', label: 'Giardia', group: 'giardia' },
+    { key: 'flu', label: 'Gripe Canina', group: 'flu' },
+    { key: 'rabies', label: 'Antirrabica', group: 'rabies' },
+  ];
 
-  const firstStart = addDays(birth, 15);
-  const firstEnd = addDays(birth, 30);
-  const secondDue = addDays(firstStart, 15);
+  for (const plan of annualPlans) {
+    const last = lastByGroup[plan.group];
+    if (!last) continue;
+    const dueDate = addDays(atUtcMidnight(last), 365);
+    const eventKey = `${plan.key}-annual-${dueDate.getUTCFullYear()}`;
+    const applied = appMap.get(eventKey);
+    const s = statusFor(dueDate, now);
+    annualEvents.push({
+      event_key: eventKey,
+      care_type: 'vaccine',
+      label: plan.label,
+      dose_label: 'Reforco anual',
+      due_date: formatDate(dueDate),
+      window_start: null,
+      window_end: null,
+      is_applied: Boolean(applied),
+      applied_at: applied?.applied_at ?? null,
+      notes: applied?.notes ?? '',
+      product_name: applied?.product_name ?? '',
+      dosage: applied?.dosage ?? '',
+      is_overdue: !applied && s.is_overdue,
+      is_due_soon: !applied && s.is_due_soon,
+    });
+  }
+
+  return [...events, ...annualEvents];
+}
+
+function buildDewormingEvents(
+  birth: Date,
+  settings: DewormingSettings,
+  appMap: Map<string, CareApplication>,
+  now: Date
+) {
+  const events: CareEvent[] = [];
+  const interval = Math.max(1, settings.maintenance_interval_days || 30);
+  const endDate = addMonths(birth, Math.max(1, settings.maintenance_end_age_months || 6));
 
   const firstKey = 'deworm-1';
-  const secondKey = 'deworm-2';
+  const firstStart = addDays(birth, 15);
+  const firstEnd = addDays(birth, 30);
   const firstApplied = appMap.get(firstKey);
-  const secondApplied = appMap.get(secondKey);
-  const firstStatus = statusFor(firstEnd, now);
-  const secondStatus = statusFor(secondDue, now);
-
+  const firstDue = firstEnd;
+  const firstStatus = statusFor(firstDue, now);
   events.push({
     event_key: firstKey,
     care_type: 'deworming',
     label: 'Vermifugacao',
     dose_label: '1a dose',
-    due_date: formatDate(firstEnd),
+    due_date: formatDate(firstDue),
     window_start: formatDate(firstStart),
     window_end: formatDate(firstEnd),
     is_applied: Boolean(firstApplied),
@@ -231,6 +210,11 @@ export function buildCareSchedule(
     is_due_soon: !firstApplied && firstStatus.is_due_soon,
   });
 
+  const secondKey = 'deworm-2';
+  const secondApplied = appMap.get(secondKey);
+  const secondBase = firstApplied ? atUtcMidnight(firstApplied.applied_at) : firstDue;
+  const secondDue = addDays(secondBase, 15);
+  const secondStatus = statusFor(secondDue, now);
   events.push({
     event_key: secondKey,
     care_type: 'deworming',
@@ -248,11 +232,11 @@ export function buildCareSchedule(
     is_due_soon: !secondApplied && secondStatus.is_due_soon,
   });
 
-  const interval = Math.max(1, settings.maintenance_interval_days || 30);
-  const endDate = addMonths(birth, Math.max(1, settings.maintenance_end_age_months || 6));
   let cycle = 1;
-  let currentDue = addDays(secondDue, interval);
-  while (currentDue <= endDate) {
+  let previousReference = secondApplied ? atUtcMidnight(secondApplied.applied_at) : secondDue;
+  while (true) {
+    const currentDue = addDays(previousReference, interval);
+    if (currentDue > endDate) break;
     const eventKey = `deworm-maint-${cycle}`;
     const applied = appMap.get(eventKey);
     const s = statusFor(currentDue, now);
@@ -272,11 +256,28 @@ export function buildCareSchedule(
       is_overdue: !applied && s.is_overdue,
       is_due_soon: !applied && s.is_due_soon,
     });
+
+    previousReference = applied ? atUtcMidnight(applied.applied_at) : currentDue;
     cycle += 1;
-    currentDue = addDays(currentDue, interval);
   }
 
-  return events.sort((a, b) => a.due_date.localeCompare(b.due_date));
+  return events;
+}
+
+export function buildCareSchedule(
+  profile: Profile,
+  settings: DewormingSettings,
+  applications: CareApplication[]
+) {
+  if (!profile.birth_date) return [];
+
+  const birth = atUtcMidnight(profile.birth_date);
+  const now = todayUtc();
+  const appMap = applicationMap(applications);
+
+  const vaccineEvents = buildVaccineEvents(birth, appMap, now);
+  const dewormingEvents = buildDewormingEvents(birth, settings, appMap, now);
+  return [...vaccineEvents, ...dewormingEvents].sort((a, b) => a.due_date.localeCompare(b.due_date));
 }
 
 export function remindersForToday(events: CareEvent[]) {
