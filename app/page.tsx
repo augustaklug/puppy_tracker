@@ -46,6 +46,26 @@ function formatKg(value: number) {
   });
 }
 
+function formatAge(birthDate: string | null, measuredAt: string): string {
+  if (!birthDate) return '';
+  const birth = new Date(birthDate);
+  const measured = new Date(measuredAt);
+  const days = Math.floor((measured.getTime() - birth.getTime()) / 86_400_000);
+  if (days < 0) return '';
+  if (days < 112) {
+    const weeks = Math.floor(days / 7);
+    return weeks === 1 ? '1 sem' : `${weeks} sem`;
+  }
+  const totalMonths = Math.floor(days / 30.4375);
+  if (totalMonths < 24) {
+    return totalMonths === 1 ? '1 mês' : `${totalMonths} meses`;
+  }
+  const years = Math.floor(totalMonths / 12);
+  const months = totalMonths % 12;
+  if (months === 0) return years === 1 ? '1 ano' : `${years} anos`;
+  return `${years} a ${months} m`;
+}
+
 function niceStep(rawStep: number) {
   if (rawStep <= 0) return 1;
   const exponent = Math.floor(Math.log10(rawStep));
@@ -560,6 +580,7 @@ export default function Home() {
                 <thead>
                   <tr>
                     <th>Data</th>
+                    <th>Idade</th>
                     <th>Peso</th>
                     <th>Variação</th>
                     <th>Observações</th>
@@ -568,16 +589,20 @@ export default function Home() {
                 </thead>
                 <tbody>
                   {entries.length === 0
-                    ? <tr><td colSpan={5} className="empty-row">Nenhuma pesagem registrada ainda.</td></tr>
-                    : entries.map((entry) => (
-                      <tr key={entry.id}>
-                        <td>{formatDate(entry.measured_at)}</td>
-                        <td><strong>{Number(entry.weight_kg).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 3 })} kg</strong></td>
-                        <td><WeightVariation m={weightMetrics.get(entry.id)} /></td>
-                        <td className="muted-cell">{entry.notes || '—'}</td>
-                        <td><button type="button" className="ghost" onClick={() => deleteEntry(entry.id)}>Excluir</button></td>
-                      </tr>
-                    ))}
+                    ? <tr><td colSpan={6} className="empty-row">Nenhuma pesagem registrada ainda.</td></tr>
+                    : entries.map((entry) => {
+                      const age = formatAge(profile.birth_date, entry.measured_at);
+                      return (
+                        <tr key={entry.id}>
+                          <td>{formatDate(entry.measured_at)}</td>
+                          <td className="muted-cell">{age || '—'}</td>
+                          <td><strong>{Number(entry.weight_kg).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 3 })} kg</strong></td>
+                          <td><WeightVariation m={weightMetrics.get(entry.id)} /></td>
+                          <td className="muted-cell">{entry.notes || '—'}</td>
+                          <td><button type="button" className="ghost" onClick={() => deleteEntry(entry.id)}>Excluir</button></td>
+                        </tr>
+                      );
+                    })}
                 </tbody>
               </table>
             </div>
